@@ -1,4 +1,315 @@
-# Splitkb Halcyon Modules QMK Userspace
+# Custom Vial firmware for my Halcyon Elora rev2
+
+Custom [Vial](https://get.vial.today/) firmware for a **splitkb Halcyon Elora rev2** (RP2040 Halcyon wired controller, no Halcyon module installed).
+
+This repo is a fork of [splitkb/qmk_userspace](https://github.com/splitkb/qmk_userspace) (branch `halcyon`, the Vial branch, as recommended by the [splitkb docs](https://docs.splitkb.com/product-guides/halcyon-series/resources/compiling-firmware-qmk)). The original splitkb README is kept further down.
+
+Everything needed to build (the QMK CLI, the ARM compiler and the Vial source) is installed **inside this repo** in `.qmk/`. Nothing is installed system-wide and no `sudo` is needed.
+
+**What this firmware does** compared to the stock splitkb Vial firmware:
+
+- **My layout is baked in** (from `layouts/Halcyon_elora_rev2_vial_layout.vil`), so a freshly flashed keyboard is ready to use without loading anything in Vial.
+- **Two layers:** layer 0 is the QWERTY base, layer 1 has the F-keys, navigation and media keys. Two right-hand thumb keys always switch between them (`TO(1)` / `TO(0)`).
+- **Lighting per layer:** layer 0 is a typing heatmap that's red at rest and turns blue as you type, and layer 1 is solid white. See [Layer colours](#layer-colours).
+- **No Vial macros.** The old macros only faked layer colours. The firmware does that now.
+
+---
+
+## Quick reference
+
+```sh
+./scripts/setup.sh              # once, after cloning
+source scripts/env.sh           # in every new terminal
+qmk userspace-compile           # build -> splitkb_halcyon_elora_rev2_stick.uf2
+
+python3 scripts/vil_to_firmware.py   # after saving a new layout from Vial (then build again)
+```
+
+---
+
+## Step-by-step
+
+### 1. Requirements
+
+These must already be on your system (all are standard on CachyOS/Arch):
+
+| Tool | Check with | Used for |
+| :--- | :--- | :--- |
+| `git` | `git --version` | cloning the Vial source |
+| `uv` | `uv --version` | creating the Python venv (`sudo pacman -S uv` if missing) |
+| `curl`, `tar` with zstd | `tar --zstd --help` | downloading the prebuilt compiler |
+
+You'll need about **3 GB of free disk space** for `.qmk/`.
+
+### 2. Clone this repo
+
+```sh
+git clone https://github.com/StoicaTielemans/qmk_userspace.git CustomHalcyonKeyboardFirmware
+cd CustomHalcyonKeyboardFirmware
+```
+
+### 3. Run the one-time setup
+
+```sh
+./scripts/setup.sh
+```
+
+The script is safe to run again. It skips steps that are already done. It creates:
+
+| Path | Contents |
+| :--- | :--- |
+| `.qmk/venv/` | Python virtual environment holding the `qmk` CLI and Vial's Python requirements |
+| `.qmk/toolchain/` | Prebuilt ARM GCC from [qmk/qmk_toolchains](https://github.com/qmk/qmk_toolchains) (replaces `pacman -S arm-none-eabi-gcc`) |
+| `.qmk/vial-qmk/` | Shallow clone of [vial-kb/vial-qmk](https://github.com/vial-kb/vial-qmk) with submodules |
+| `.qmk/bin/qmk` | Wrapper that makes `qmk` use the config in `.qmk/config/` instead of `~/.config/qmk/` |
+| `.qmk/config/qmk/qmk.ini` | Points `qmk_home` at `.qmk/vial-qmk` and `overlay_dir` at this repo |
+
+`.qmk/` is in `.gitignore`, so none of this is committed.
+
+### 4. Activate the environment
+
+In **every new terminal** (works in zsh and bash):
+
+```sh
+source scripts/env.sh
+```
+
+Like activating a Python venv, this only affects the current terminal. It puts `.qmk/bin`, `.qmk/venv/bin` and `.qmk/toolchain/bin` at the front of `PATH`. To check that it worked:
+
+```sh
+which qmk          # -> .../.qmk/bin/qmk
+qmk env            # QMK_FIRMWARE should be .../.qmk/vial-qmk
+```
+
+### 5. Build
+
+```sh
+qmk userspace-compile
+```
+
+This builds every target in `qmk.json`. The firmware ends up in the repo root:
+
+```
+splitkb_halcyon_elora_rev2_stick.uf2
+```
+
+(`*.uf2` files are git-ignored.)
+
+To build one target manually, or to see the exact compile command:
+
+```sh
+qmk compile -kb splitkb/halcyon/elora/rev2 -km stick -e HLC_NONE=1 -e TARGET=splitkb_halcyon_elora_rev2_stick
+qmk userspace-compile -n     # print commands without building
+```
+
+### 6. Flash both halves
+
+Each half has its own controller with its own copy of the firmware, so **both halves must be flashed, one at a time**, with the same `.uf2` file. There's no separate left or right firmware; each half detects its side by itself. If only one half is flashed, the halves may disagree (for example on layers or colours).
+
+The Elora uses an RP2040, so flashing is just a file copy. No flashing tool, udev rules or `sudo` are needed.
+
+1. **Unplug everything,** including the USB-C cable that links the two halves.
+2. Plug **only the left half** straight into the PC.
+3. Enter the bootloader with **any** of these:
+   - **double-tap** the reset button (top of the controller, above the USB-C port)
+   - hold **Boot** while plugging in
+   - press a `QK_BOOT` key, if your layout has one
+4. Check that it's in bootloader mode:
+   ```sh
+   lsusb | grep -iE '2e8a|splitkb'
+   ```
+   - `2e8a:0003 Raspberry Pi RP2 Boot` means it's in the bootloader and ready.
+   - `8d1d:a392 splitkb.com Halcyon Elora rev2` means it's still running normally. Double-tap reset again.
+
+   To watch it happen live, run `sudo dmesg -w` (or `journalctl -kf`) while you press reset.
+5. A drive called **`RPI-RP2`** appears. Check that it's mounted, and mount it if it isn't:
+   ```sh
+   lsblk -o NAME,LABEL,SIZE,MOUNTPOINT | grep -i RPI      # no mount point = not mounted
+   udisksctl mount -b /dev/disk/by-label/RPI-RP2          # prints where it mounted
+   ```
+6. Copy the firmware onto it:
+   ```sh
+   cp splitkb_halcyon_elora_rev2_stick.uf2 /run/media/$USER/RPI-RP2/ && sync
+   ```
+   The drive disconnects by itself after a few seconds; an "error ejecting" message is normal. Check that it worked: `lsusb` shows `splitkb.com Halcyon Elora rev2` again.
+7. Unplug it and repeat steps 2–6 with **only the right half**.
+8. Plug the cable between the halves back in, then connect the keyboard to the PC as usual.
+
+You can always go back to the stock firmware by flashing splitkb's `splitkb_halcyon_elora_rev2_vial_hlc.uf2` the same way. The bootloader can't be overwritten, so flashing can't brick the keyboard.
+
+### 7. Check it in Vial
+
+My layout is **baked into the firmware**, so after flashing the keyboard already has the base layer, the F-keys layer and the encoder mappings. You don't need to load anything.
+
+1. Open Vial ([get.vial.today](https://get.vial.today/), or the desktop app) to check or tweak the keymap.
+2. If Vial asks to **unlock** the keyboard, hold the unlock keys it highlights (matrix positions row 0 col 1 + row 6 col 1, i.e. the top-row `5` and `6` keys).
+
+Changes made in Vial are saved on the keyboard and survive unplugging, but **flashing a new build resets the keyboard to the baked-in layout**. To keep a Vial change permanently, bake it in (see [Changing the default layout](#changing-the-default-layout)).
+
+**Quick test:** all keys should be red, and keys you type on should turn purple or blue. Press one of the `TO(1)` thumb keys and both halves should turn white. Press it again (it's `TO(0)` on layer 1) to go back to red.
+
+> Don't load an old `.vil` with colour macros on top of this firmware. Those macros aren't needed anymore (see [Layer colours](#layer-colours)).
+
+---
+
+## Changing the default layout
+
+The default keymap is generated from a Vial save file:
+
+1. Change the layout in Vial.
+2. **File → Save current layout** over `layouts/Halcyon_elora_rev2_vial_layout.vil`.
+3. Regenerate `keymap.json` from it, then build and flash:
+   ```sh
+   python3 scripts/vil_to_firmware.py
+   source scripts/env.sh && qmk userspace-compile
+   ```
+
+What the script bakes in, and what it doesn't:
+
+| From the `.vil` | Baked in? |
+| :--- | :--- |
+| Layers (all 8) | Yes, into `keymap.json` |
+| Encoder mappings | Yes, into `keymap.json` |
+| Macros that are `TG(n)` + RGB hue taps (the old colour trick) | Replaced by a plain `TG(n)` key |
+| Other macros | No. The key becomes `KC_NO` and the script prints a warning. |
+| Tap dance, combos, key overrides | No. The script prints a warning if any are set. |
+| QMK settings (tapping term etc.) | No, but mine are all the firmware defaults anyway |
+
+Don't edit `keymap.json` by hand. It's overwritten every time the script runs.
+
+---
+
+## Layer colours
+
+`keymap.c` gives every layer its own lighting. It follows the highest active layer and works on both halves:
+
+| Layer | Contents | Lighting |
+| :---: | :--- | :--- |
+| 0 | Base (QWERTY) | **Typing heatmap.** Every key and the underglow are red at rest. Keys you press shift through magenta and purple to blue the more you type, then fade back to red. |
+| 1 | F-keys, navigation & media | **Solid white** |
+| 2–7 | empty (free to use in Vial) | Solid green, purple, yellow, cyan, magenta, orange |
+
+Switching layers:
+
+| Key | On layer | Does |
+| :--- | :--- | :--- |
+| `TO(1)` (the two right-hand thumb keys next to `LAlt`) | 0 | Always go to layer 1 |
+| `TO(0)` (the same two keys) | 1 | Always go back to layer 0 |
+
+`TO(n)` turns on layer `n` and turns off every other layer, so pressing it twice doesn't toggle back. Keys marked ▽ on layer 1 (transparent) fall through to the base layer.
+
+Tweaking it in `keymap.c` (rebuild and flash afterwards):
+
+| What | Where |
+| :--- | :--- |
+| Heatmap colours | `HEATMAP_COLD_HUE` (rest, red) and `HEATMAP_HOT_HUE` (hottest, blue). The colour runs *down* from cold to hot, through magenta and purple. |
+| Colours of layers 2–7 | the `layer_hues` table |
+| Different lighting for a layer | the `switch` in `set_layer_lighting()` |
+| How fast keys heat up and cool down | add to `config.h`: `RGB_MATRIX_TYPING_HEATMAP_INCREASE_STEP` (default 32 per press), `RGB_MATRIX_TYPING_HEATMAP_DECREASE_DELAY_MS` (default 25 ms per step), `RGB_MATRIX_TYPING_HEATMAP_SPREAD` (default 40, how far heat spreads to nearby keys) |
+
+Hue runs from 0 to 255: 0 red, 21 orange, 43 yellow, 85 green, 128 cyan, 170 blue, 191 purple, 213 magenta.
+
+- **Brightness** still comes from Vial's Lighting tab.
+- **The effect and colour** are set by the layer. Anything picked in Vial is overwritten on the next layer change.
+
+---
+
+## What's in this repo
+
+| Path | What it is |
+| :--- | :--- |
+| `keyboards/splitkb/halcyon/elora/keymaps/stick/` | **My keymap**, copied from splitkb's `vial_hlc_legacy` |
+| `layouts/Halcyon_elora_rev2_vial_layout.vil` | My Vial layout. The source of the default keymap. Based on my original save from `~/Dotfiles`, but with the base layer kept as layer 0, the F-keys layer moved from layer 3 to layer 1, the other layers and all macros removed, and the macro keys replaced by `TO(1)` / `TO(0)`. |
+| `qmk.json` | Build targets. Only my keymap is listed. |
+| `scripts/setup.sh` | One-time setup of `.qmk/` |
+| `scripts/env.sh` | Activates the repo-local environment |
+| `scripts/vil_to_firmware.py` | Generates `keymap.json` from the `.vil` |
+| `users/halcyon_modules/` | splitkb code for Halcyon modules (display, encoder, trackpad) |
+
+### Files in the `stick` keymap
+
+| File | Purpose |
+| :--- | :--- |
+| `keymap.json` | Default layers and encoders. **Generated** by `scripts/vil_to_firmware.py`. |
+| `keymap.c` | Per-layer RGB lighting: heatmap on layer 0, white on layer 1, solid colours on layers 2–7 |
+| `config.h` | Vial UID, unlock combo, layer count (8), RGB matrix options, legacy matrix layout |
+| `rules.mk` | Enables Vial, VialRGB, the encoder map and the Halcyon modules userspace |
+| `vial.json` | Tells the Vial app the physical layout and matrix size (12 rows × 7 cols) |
+| `halcyon_overrides.c` | LED positions and matrix mask for the legacy matrix layout |
+
+Other custom C code goes in `keymap.c` too.
+
+### Why `vial_hlc_legacy` and not `vial_hlc`?
+
+The stock firmware this keyboard shipped with (`splitkb_halcyon_elora_rev2_vial_hlc.uf2`) uses the **legacy** 12×7 matrix with UID `0x91C072B1EA3FF0BA`. A `.vil` file only loads correctly on firmware with the same matrix, and `scripts/vil_to_firmware.py` relies on it too. The newer `vial_hlc` keymap uses a 10×12 matrix, so all keys would end up in the wrong place.
+
+**Do not change `VIAL_KEYBOARD_UID` or the matrix**, or `.vil` files won't load anymore.
+
+---
+
+## Halcyon modules
+
+`qmk.json` builds with `HLC_NONE=1` (no module installed). If you add a module, change that flag and rebuild:
+
+| Flag | Module |
+| :--- | :--- |
+| `HLC_NONE` | No module on this half (module on the other half, or none at all) |
+| `HLC_ENCODER` | Rotary encoder module |
+| `HLC_ENCODER_REV2` | Rotary encoder module, revision 2 |
+| `HLC_TFT_DISPLAY` | TFT LCD display module |
+| `HLC_CIRQUE_TRACKPAD` | Cirque trackpad module |
+
+The easiest way to add a target is:
+
+```sh
+qmk userspace-add -kb splitkb/halcyon/elora/rev2 -km stick -e HLC_ENCODER=1 -e TARGET=splitkb_halcyon_elora_rev2_stick_encoder
+```
+
+Each half gets the firmware that matches **its own** module.
+
+---
+
+## Building with GitHub Actions instead
+
+Every push to GitHub also builds the firmware in the cloud (`.github/workflows/build_binaries.yaml`):
+
+1. On GitHub, open the **Actions** tab and click **"I understand my workflows, go ahead and enable them"** (first time only).
+2. Push a commit.
+3. Download the `.uf2` from the **Releases** tab (release `latest-halcyon-vial`).
+
+---
+
+## Troubleshooting
+
+| Problem | Fix |
+| :--- | :--- |
+| `qmk: invalid choice: 'userspace-compile'` | The environment isn't active. Run `source scripts/env.sh`. |
+| `qmk env` shows `QMK_FIRMWARE=""` | `.qmk/vial-qmk` is missing or incomplete. Run `./scripts/setup.sh` again. |
+| `arm-none-eabi-gcc: command not found` | Run `source scripts/env.sh`. If it still fails, delete `.qmk/toolchain` and run setup again. |
+| `qmk doctor` warns about udev rules | Safe to ignore. RP2040 boards flash by file copy. |
+| `RPI-RP2` is in `lsblk` but has no mount point | `udisksctl mount -b /dev/disk/by-label/RPI-RP2` |
+| `RPI-RP2` drive doesn't appear | Use a data USB cable, plug that half straight into the PC (not through the USB-C cable that links the halves), and try the Boot + plug-in method. |
+| Halves don't talk to each other | Flash **both** halves with the same firmware. |
+| Layer colours don't change | Check that RGB is on and the brightness isn't 0 (Vial → Lighting). Make sure **both** halves have the new firmware. |
+| Heatmap colours look wrong after a Vial change | The effect is set by the layer. Switch layers once, or re-flash to reset everything. |
+| Keys are in the wrong place in Vial | The firmware has the wrong matrix. Use the `stick` (legacy) keymap, not `vial_hlc`. |
+| Start over completely | `rm -rf .qmk && ./scripts/setup.sh` |
+
+### Updating
+
+```sh
+git -C .qmk/vial-qmk pull && git -C .qmk/vial-qmk submodule update --init --recursive   # newer Vial
+git fetch splitkb && git merge splitkb/halcyon                                            # newer splitkb userspace
+```
+
+(Add the splitkb remote once with `git remote add splitkb https://github.com/splitkb/qmk_userspace.git` if it's missing.)
+
+To update the compiler, change `TOOLCHAIN_VERSION`/`TOOLCHAIN_ASSET` in `scripts/setup.sh`, then run `rm -rf .qmk/toolchain && ./scripts/setup.sh`.
+
+---
+---
+
+# Original splitkb README: Halcyon Modules QMK Userspace
 
 This is the splitkb userspace repository. It allows for an external set of QMK keymaps with **Halcyon modules** to be defined and compiled without having to fork the main QMK or Vial repositories. 
 
