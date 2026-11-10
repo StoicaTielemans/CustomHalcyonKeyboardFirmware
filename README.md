@@ -10,7 +10,7 @@ Everything needed to build (the QMK CLI, the ARM compiler and the Vial source) i
 
 - **My layout is baked in** (from `layouts/Halcyon_elora_rev2_vial_layout.vil`), so a freshly flashed keyboard is ready to use without loading anything in Vial.
 - **Two layers:** layer 0 is the QWERTY base, layer 1 has the F-keys, navigation and media keys. Two right-hand thumb keys always switch between them (`TO(1)` / `TO(0)`).
-- **Lighting per layer:** layer 0 is a typing heatmap that's red at rest and turns blue as you type, and layer 1 is solid white. See [Layer colours](#layer-colours).
+- **Lighting per layer:** layer 0 is a typing heatmap that's red at rest and fades through cream to light blue as you type, and layer 1 is a heatmap that's white at rest and turns sage, then olive. See [Layer colours](#layer-colours).
 - **No Vial macros.** The old macros only faked layer colours. The firmware does that now.
 
 ---
@@ -185,8 +185,8 @@ Don't edit `keymap.json` by hand. It's overwritten every time the script runs.
 
 | Layer | Contents | Lighting |
 | :---: | :--- | :--- |
-| 0 | Base (QWERTY) | **Typing heatmap.** Every key and the underglow are red at rest. Keys you press shift through magenta and purple to blue the more you type, then fade back to red. |
-| 1 | F-keys, navigation & media | **Solid white** |
+| 0 | Base (QWERTY) | **Typing heatmap.** Every key and the underglow are brick red at rest. Keys you press shift through cream (papaya whip) to steel blue the more you type, then fade back to red. |
+| 1 | F-keys / nav / media | **Typing heatmap.** White smoke at rest, shifting through dry sage to dusty olive as keys get hot. Heat carries over when you switch between layers 0 and 1. |
 | 2–7 | empty (free to use in Vial) | Solid green, purple, yellow, cyan, magenta, orange |
 
 Switching layers:
@@ -202,7 +202,7 @@ Tweaking it in `keymap.c` (rebuild and flash afterwards):
 
 | What | Where |
 | :--- | :--- |
-| Heatmap colours | `HEATMAP_COLD_HUE` (rest, red) and `HEATMAP_HOT_HUE` (hottest, blue). The colour runs *down* from cold to hot, through magenta and purple. |
+| Heatmap colours | `heatmap_layer0` / `heatmap_layer1` in `keymap.c`: lists of RGB colours from cold (rest) to hot, blended evenly. Add or remove stops to change a gradient. |
 | Colours of layers 2–7 | the `layer_hues` table |
 | Different lighting for a layer | the `switch` in `set_layer_lighting()` |
 | How fast keys heat up and cool down | add to `config.h`: `RGB_MATRIX_TYPING_HEATMAP_INCREASE_STEP` (default 32 per press), `RGB_MATRIX_TYPING_HEATMAP_DECREASE_DELAY_MS` (default 25 ms per step), `RGB_MATRIX_TYPING_HEATMAP_SPREAD` (default 40, how far heat spreads to nearby keys) |
@@ -231,7 +231,7 @@ Hue runs from 0 to 255: 0 red, 21 orange, 43 yellow, 85 green, 128 cyan, 170 blu
 | File | Purpose |
 | :--- | :--- |
 | `keymap.json` | Default layers and encoders. **Generated** by `scripts/vil_to_firmware.py`. |
-| `keymap.c` | Per-layer RGB lighting: heatmap on layer 0, white on layer 1, solid colours on layers 2–7 |
+| `keymap.c` | Per-layer RGB lighting: heatmaps on layers 0 and 1, solid colours on layers 2–7 |
 | `config.h` | Vial UID, unlock combo, layer count (8), RGB matrix options, legacy matrix layout |
 | `rules.mk` | Enables Vial, VialRGB, the encoder map and the Halcyon modules userspace |
 | `vial.json` | Tells the Vial app the physical layout and matrix size (12 rows × 7 cols) |
